@@ -1,0 +1,41 @@
+name: Raw Pages artifact boundary fixture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create inert source marker tar
+        shell: python
+        env:
+          ARTIFACT_PATH: ${{ runner.temp }}/artifact.tar
+        run: |
+          import io
+          import os
+          import tarfile
+
+          marker = b"PAGES_ENCODEDREF_SOURCE_CONTROL_20261104_71E2B9A4\n"
+          directory = tarfile.TarInfo("site")
+          directory.type = tarfile.DIRTYPE
+          directory.mode = 0o755
+          page = tarfile.TarInfo("site/index.html")
+          page.mode = 0o644
+          page.size = len(marker)
+          with tarfile.open(os.environ["ARTIFACT_PATH"], "w", format=tarfile.USTAR_FORMAT) as archive:
+              archive.addfile(directory)
+              archive.addfile(page, io.BytesIO(marker))
+
+      - name: Upload raw tar
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pages-encodedref-source-control
+          path: ${{ runner.temp }}/artifact.tar
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
