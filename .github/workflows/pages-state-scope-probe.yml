@@ -1,0 +1,60 @@
+name: Pages deployment state scope probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: Exact owned-fixture commit SHA used as the Pages deployment ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Confirm token isolation and cancel through source repository route
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          PRIVATE_TARGET: singetu0096-test/pages-encodedref-boundary-target-20261104
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$DEPLOYMENT_ID" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "deployment_id must be an exact lowercase 40-hex SHA" >&2
+            exit 2
+          fi
+
+          target_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$PRIVATE_TARGET")"
+          echo "private_target_read_status=$target_code"
+          test "$target_code" = "404"
+
+          cancel_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pages/deployments/$DEPLOYMENT_ID/cancel")"
+          echo "source_route_cancel_status=$cancel_code"
+          test "$cancel_code" = "204"
+
+          status_response="$(curl --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pages/deployments/$DEPLOYMENT_ID")"
+          observed_status="$(jq -r '.status // .message // "missing"' <<<"$status_response")"
+          echo "source_route_observed_status=$observed_status"
+          test "$observed_status" = "deployment_cancelled"
